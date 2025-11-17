@@ -6,6 +6,9 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![TypeScript](https://img.shields.io/badge/typescript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Backend CI](https://github.com/windoliver/ThreatWeaver/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/windoliver/ThreatWeaver/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/windoliver/ThreatWeaver/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/windoliver/ThreatWeaver/actions/workflows/frontend-ci.yml)
+[![Docker Build](https://github.com/windoliver/ThreatWeaver/actions/workflows/docker-build.yml/badge.svg)](https://github.com/windoliver/ThreatWeaver/actions/workflows/docker-build.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 ThreatWeaver is a **cloud-native, multi-tenant SaaS platform** that provides comprehensive offensive security automation through intelligent orchestration of industry-standard security tools. Leveraging AI agents powered by LangGraph and inspired by research frameworks like CAI, ThreatWeaver delivers adaptive, end-to-end security assessments.
