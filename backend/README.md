@@ -23,9 +23,12 @@ backend/
 │   │   ├── settings.py      # Application settings
 │   │   └── logging.py       # Logging configuration
 │   ├── db/                  # Database models and connections
+│   ├── llm/                 # LLM abstraction layer (OpenRouter)
 │   ├── security/            # Authentication and security
 │   └── storage/             # Storage backends for artifacts
 ├── tests/                   # Test files
+├── examples/                # Example scripts
+├── docs/                    # Backend documentation
 ├── pyproject.toml           # Project dependencies
 └── .env.example             # Example environment variables
 ```
@@ -128,10 +131,41 @@ Key settings:
 - `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
 - `DATABASE_URL`: PostgreSQL connection string
 - `REDIS_URL`: Redis connection string
-- `OPENAI_API_KEY`: OpenAI API key for LLM
-- `ANTHROPIC_API_KEY`: Anthropic API key for Claude
+- `OPENROUTER_API_KEY`: OpenRouter API key for LLM access
+- `DEFAULT_LLM_MODEL`: Default model (e.g., anthropic/claude-3.5-sonnet)
 
 See `.env.example` for all available options.
+
+## LLM Abstraction Layer
+
+ThreatWeaver includes a comprehensive LLM abstraction layer using OpenRouter for access to 300+ AI models.
+
+**Quick Example:**
+
+```python
+from src.llm import create_llm_provider, Message, MessageRole
+
+# Create provider with defaults
+provider = create_llm_provider()
+
+# Send message
+messages = [Message(role=MessageRole.USER, content="Explain SQL injection")]
+response = provider.complete(messages)
+print(response.content)
+```
+
+**Features:**
+- Multi-model support via OpenRouter (Claude, GPT-4, Gemini, Llama, etc.)
+- Sync and async interfaces
+- Streaming responses
+- Function/tool calling
+- Vision support
+- Automatic retries
+- Comprehensive error handling
+
+**Documentation:** See [LLM Abstraction Layer](docs/LLM_ABSTRACTION.md) for full documentation.
+
+**Examples:** Check `examples/llm_basic_usage.py` for complete examples.
 
 ## Logging
 
@@ -159,7 +193,9 @@ docker compose up backend
 ## Related Documentation
 
 - [Architecture](../architecture.md) - System design
+- [LLM Abstraction Layer](docs/LLM_ABSTRACTION.md) - LLM integration guide
 - [Issue #4](https://github.com/windoliver/ThreatWeaver/issues/4) - Backend setup tracker
+- [Issue #9](https://github.com/windoliver/ThreatWeaver/issues/9) - LLM abstraction layer implementation
 
 ## License
 

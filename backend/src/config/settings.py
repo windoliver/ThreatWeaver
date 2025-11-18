@@ -44,10 +44,16 @@ class Settings(BaseSettings):
     secret_key: str = Field(default="dev-secret-key-change-in-production")
     access_token_expire_minutes: int = Field(default=30)
 
-    # LLM
-    openai_api_key: str = Field(default="")
-    anthropic_api_key: str = Field(default="")
-    litellm_model: str = Field(default="gpt-4")
+    # LLM - OpenRouter Configuration
+    openrouter_api_key: str = Field(default="")
+    openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
+    openrouter_site_url: str = Field(default="")
+    openrouter_site_name: str = Field(default="ThreatWeaver")
+
+    # Default LLM Model
+    default_llm_model: str = Field(default="anthropic/claude-3.5-sonnet")
+    default_llm_temperature: float = Field(default=0.7)
+    default_llm_max_tokens: int = Field(default=4096)
 
     # Agent Configuration
     max_agent_iterations: int = Field(default=10)
