@@ -1,5 +1,11 @@
 """Pydantic schemas for API requests and responses."""
 
+from .approval import (
+    ApprovalRequestCreate,
+    ApprovalRequestList,
+    ApprovalRequestResponse,
+    ApprovalReview,
+)
 from .auth import (
     RefreshTokenRequest,
     Token,
@@ -8,6 +14,7 @@ from .auth import (
     UserLogin,
     UserResponse,
 )
+from .security import AgentHandoff, ReconResult, ToolExecutionRequest, VulnerabilityFinding
 from .user import PasswordChange, UserUpdate
 
 __all__ = [
@@ -19,4 +26,12 @@ __all__ = [
     "RefreshTokenRequest",
     "UserUpdate",
     "PasswordChange",
+    "VulnerabilityFinding",
+    "ReconResult",
+    "AgentHandoff",
+    "ToolExecutionRequest",
+    "ApprovalRequestCreate",
+    "ApprovalRequestResponse",
+    "ApprovalRequestList",
+    "ApprovalReview",
 ]

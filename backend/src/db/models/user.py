@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from .security_event import SecurityEvent
     from .team import TeamMember
 
 
@@ -29,6 +30,10 @@ class User(Base, TimestampMixin):
         "TeamMember",
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    security_events: Mapped[list["SecurityEvent"]] = relationship(
+        "SecurityEvent",
+        back_populates="user",
     )
 
     def __repr__(self) -> str:

@@ -10,6 +10,7 @@ from ..base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from .scan import Scan
+    from .security_event import SecurityEvent
     from .user import User
 
 
@@ -40,6 +41,11 @@ class Team(Base, TimestampMixin):
     )
     scans: Mapped[list["Scan"]] = relationship(
         "Scan",
+        back_populates="team",
+        cascade="all, delete-orphan",
+    )
+    security_events: Mapped[list["SecurityEvent"]] = relationship(
+        "SecurityEvent",
         back_populates="team",
         cascade="all, delete-orphan",
     )

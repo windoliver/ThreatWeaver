@@ -11,6 +11,7 @@ from .dependencies import (
 )
 from .jwt import create_access_token, create_refresh_token, decode_token
 from .password import hash_password, verify_password
+from .prompt_guard import PromptGuard, SecurityError
 
 __all__ = [
     "hash_password",
@@ -25,4 +26,6 @@ __all__ = [
     "CurrentUser",
     "CurrentActiveUser",
     "CurrentSuperuser",
+    "PromptGuard",
+    "SecurityError",
 ]

@@ -3,6 +3,7 @@
 from .approval import ApprovalRequest, ApprovalRequestType, ApprovalStatus
 from .finding import Finding, FindingSeverity, FindingStatus
 from .scan import Scan, ScanStatus, ScanType
+from .security_event import SecurityEvent, SecurityEventType, ThreatLevel
 from .team import Team, TeamMember, TeamRole
 from .user import User
 
@@ -25,4 +26,8 @@ __all__ = [
     "ApprovalRequest",
     "ApprovalRequestType",
     "ApprovalStatus",
+    # Security
+    "SecurityEvent",
+    "SecurityEventType",
+    "ThreatLevel",
 ]

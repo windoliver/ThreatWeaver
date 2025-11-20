@@ -1,12 +1,39 @@
 # ThreatWeaver Technical Architecture
 
-**Version**: 1.1
-**Last Updated**: 2025-11-16
+**Version**: 1.3
+**Last Updated**: 2025-11-18
 **Status**: Architecture Design Document
 
 ---
 
 ## 📋 Version History
+
+### Version 1.3 (2025-11-18)
+
+**Framework Integration Architecture** 🔧:
+
+1. **DeepAgents + Nexus Integration** (CRITICAL CLARIFICATION)
+   - **DeepAgents**: Provides agent orchestration framework (TodoListMiddleware, SubAgentMiddleware, human-in-the-loop workflows)
+   - **Nexus**: REPLACES DeepAgents' FilesystemMiddleware entirely
+   - Nexus provides: File operations, versioning, memory API, semantic search, multi-backend storage (S3/GCS/local)
+   - Clear separation: DeepAgents = reasoning/coordination, Nexus = persistence/memory/storage
+   - Custom NexusMiddleware bridges DeepAgents agents to Nexus workspace
+
+2. **Technology Stack Alignment**:
+   - Agent orchestration: DeepAgents (built on LangGraph)
+   - File/memory layer: Nexus (multi-backend storage, ReBAC, versioning)
+   - Multi-model support: LiteLLM (300+ models) integrated with DeepAgents
+   - Task execution: Celery (tool execution) + Docker (sandboxing)
+
+3. **Middleware Architecture**:
+   - TodoListMiddleware (DeepAgents): Dynamic planning, task decomposition
+   - SubAgentMiddleware (DeepAgents): Spawn isolated sub-agents
+   - NexusMiddleware (Custom): File I/O, workspace access, memory API integration
+   - GuardrailMiddleware (Custom): Prompt injection defense, input validation
+
+**See**: New section "DeepAgents + Nexus Integration Architecture" for detailed integration patterns
+
+---
 
 ### Version 1.2 (2025-11-16)
 
@@ -67,16 +94,17 @@
 
 1. [Architecture Overview](#architecture-overview)
 2. [System Design Principles](#system-design-principles)
-3. [Core Architecture Layers](#core-architecture-layers)
-4. [Multi-Agent System Design](#multi-agent-system-design)
-5. [Security Tool Integration](#security-tool-integration)
-6. [Workflow Orchestration Patterns](#workflow-orchestration-patterns)
-7. [Technology Stack](#technology-stack)
-8. [Scalability & Performance](#scalability--performance)
-9. [Security & Compliance](#security--compliance)
-10. [Deployment Architecture](#deployment-architecture)
-11. [Future Evolution](#future-evolution)
-12. [Comparison with Similar Tools](#comparison-with-similar-tools)
+3. [DeepAgents + Nexus Integration Architecture](#deepagents--nexus-integration-architecture)
+4. [Core Architecture Layers](#core-architecture-layers)
+5. [Multi-Agent System Design](#multi-agent-system-design)
+6. [Security Tool Integration](#security-tool-integration)
+7. [Workflow Orchestration Patterns](#workflow-orchestration-patterns)
+8. [Technology Stack](#technology-stack)
+9. [Scalability & Performance](#scalability--performance)
+10. [Security & Compliance](#security--compliance)
+11. [Deployment Architecture](#deployment-architecture)
+12. [Future Evolution](#future-evolution)
+13. [Comparison with Similar Tools](#comparison-with-similar-tools)
 
 ---
 
@@ -572,14 +600,17 @@ class ExploitAgent:
 
 **See**: [LEARNINGS_FROM_CAI.md](./LEARNINGS_FROM_CAI.md#2-guardrails-against-prompt-injection) for implementation
 
-### 7. Shared Workspace Pattern (Nexus-Inspired)
+### 7. Shared Workspace Pattern (Nexus)
 
-**Virtual Filesystem for Agent Collaboration**:
-- **Unified Storage API**: All agents read/write to versioned workspace
+**AI-Native Filesystem for Agent Collaboration**:
+- **Nexus Framework**: Unified filesystem/memory layer (replaces DeepAgents' FilesystemMiddleware)
+- **Multi-Backend Storage**: S3, GCS, local filesystem with seamless abstraction
+- **Versioning & Rollback**: Complete version history with time-travel debugging
+- **Memory API**: Semantic search, persistent knowledge storage, LLM-powered Q&A
 - **Event-Driven Triggers**: File writes automatically trigger dependent workflows
 - **Complete Audit Trail**: Every operation logged with timestamps and agent attribution
-- **Backend**: S3/MinIO for object storage, PostgreSQL for metadata
-- **Handoff Strategy**: In-memory during scan, persist to Nexus at end (hybrid approach)
+- **ReBAC Permissions**: Fine-grained access control for multi-tenant environments
+- **Handoff Strategy**: In-memory during scan (LangGraph state), persist to Nexus at end (hybrid approach)
 
 **Workspace Organization**:
 ```
@@ -674,6 +705,338 @@ Updated Plan:
 - ReBAC (Relationship-Based Access Control) for multi-tenant environments
 - Exportable audit logs in industry-standard formats
 - Data retention policies with automated purging
+
+---
+
+## DeepAgents + Nexus Integration Architecture
+
+ThreatWeaver combines **DeepAgents** (agent orchestration) with **Nexus** (filesystem/memory layer) to create a powerful, scalable multi-agent platform. This section clarifies the integration architecture and component responsibilities.
+
+### Framework Responsibilities
+
+**DeepAgents** (Agent Orchestration Framework):
+- **Purpose**: Hierarchical agent coordination, planning, and execution
+- **Provides**:
+  - TodoListMiddleware: Dynamic task planning and decomposition
+  - SubAgentMiddleware: Isolated sub-agent spawning with context isolation
+  - Human-in-the-loop workflows: Approval gates for critical operations
+  - LangGraph StateGraph compilation: Streaming, checkpointing, LangGraph Studio integration
+  - Prompt caching: Cost reduction through intelligent caching
+- **Does NOT provide**: Filesystem operations (replaced by Nexus)
+
+**Nexus** (AI-Native Filesystem & Memory):
+- **Purpose**: Unified storage, memory, and permissions layer
+- **Provides**:
+  - Multi-backend storage abstraction: S3, GCS, local filesystem
+  - Versioning & rollback: Complete audit trail with time-travel debugging
+  - Memory API: Semantic search, persistent knowledge storage, LLM-powered Q&A
+  - ReBAC permissions: Fine-grained access control (Zanzibar-inspired)
+  - Content deduplication: 30-50% storage cost savings
+  - Batch operations: 4x faster bulk uploads
+  - Workspace snapshots: Scan versioning and diff detection
+- **Replaces**: DeepAgents' FilesystemMiddleware entirely
+
+**LiteLLM** (Multi-Model Abstraction):
+- **Purpose**: Flexible LLM provider integration
+- **Provides**: Access to 300+ models (OpenAI, Anthropic, OpenRouter, etc.)
+- **Integration**: Works with DeepAgents agents (configurable per agent)
+- **Benefits**: 27% cost savings through model selection, fallback strategies
+
+### Backend Architecture
+
+ThreatWeaver uses **NexusBackend** to implement DeepAgents' `BackendProtocol`, connecting agents to Nexus/S3 storage:
+
+```python
+from deepagents import create_deep_agent
+from deepagents.backends.protocol import BackendProtocol, WriteResult, EditResult
+from nexus.core.nexus_fs import NexusFS
+
+# NexusBackend implements BackendProtocol for DeepAgents
+class NexusBackend(BackendProtocol):
+    """
+    DeepAgents backend using Nexus filesystem with S3 storage.
+
+    This backend provides file I/O operations for a single scan workspace,
+    storing files in S3 (production) or local filesystem (development) via Nexus.
+
+    Storage: s3://threatweaver-scans/{team_id}/{scan_id}/
+    """
+
+    def __init__(self, scan_id: str, team_id: str, nexus_fs: NexusFS):
+        """
+        Initialize backend for a scan workspace.
+
+        Args:
+            scan_id: Scan identifier
+            team_id: Team identifier (for multi-tenancy)
+            nexus_fs: NexusFS instance (configured with S3 connector)
+        """
+        self.scan_id = scan_id
+        self.team_id = team_id
+        self.base_path = f"/{team_id}/{scan_id}"
+        self.nx = nexus_fs
+
+        # Create workspace directory
+        self.nx.mkdir(self.base_path, parents=True, exist_ok=True)
+
+    def write(self, file_path: str, content: str) -> WriteResult:
+        """Write new file to Nexus/S3 (create-only semantics)."""
+        nexus_path = f"{self.base_path}{file_path}"
+
+        # Check if file exists
+        try:
+            self.nx.read(nexus_path)
+            return WriteResult(
+                error=f"File already exists: {file_path}. Use edit() to modify.",
+                path=None,
+                files_update=None,
+            )
+        except Exception:
+            pass  # File doesn't exist, proceed
+
+        # Write to Nexus/S3
+        self.nx.write(nexus_path, content.encode("utf-8"))
+
+        return WriteResult(
+            error=None,  # Success
+            path=file_path,
+            files_update=None,  # External storage (S3), not in-memory
+        )
+
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+        """Read file from Nexus/S3 with line numbers (DeepAgents format)."""
+        nexus_path = f"{self.base_path}{file_path}"
+
+        try:
+            content_bytes = self.nx.read(nexus_path)
+            content = content_bytes.decode("utf-8")
+
+            # Add line numbers
+            lines = content.splitlines()[offset:offset + limit]
+            numbered = [f"{i+offset+1:6d}→{line}" for i, line in enumerate(lines)]
+            return "\n".join(numbered)
+        except Exception as e:
+            return f"Error reading {file_path}: {str(e)}"
+
+    def edit(self, file_path: str, old_string: str, new_string: str,
+             replace_all: bool = False) -> EditResult:
+        """Edit existing file by replacing string occurrences."""
+        nexus_path = f"{self.base_path}{file_path}"
+
+        try:
+            # Read current content
+            content_bytes = self.nx.read(nexus_path)
+            content = content_bytes.decode("utf-8")
+
+            # Replace occurrences
+            if replace_all:
+                occurrences = content.count(old_string)
+                new_content = content.replace(old_string, new_string)
+            else:
+                occurrences = 1
+                new_content = content.replace(old_string, new_string, 1)
+
+            # Write back to Nexus/S3
+            self.nx.write(nexus_path, new_content.encode("utf-8"))
+
+            return EditResult(
+                error=None,
+                path=file_path,
+                files_update=None,  # External storage
+                occurrences=occurrences,
+            )
+        except Exception as e:
+            return EditResult(
+                error=f"Failed to edit {file_path}: {str(e)}",
+                path=None,
+                files_update=None,
+                occurrences=None,
+            )
+
+    # Additional methods: ls_info, grep_raw, glob_info
+    # See: backend/src/agents/backends/nexus_backend.py
+
+# Example: Create Subfinder Agent with NexusBackend
+from agents.backends import NexusBackend
+from agents.agent_factory import create_subfinder_agent
+from config.nexus_config import get_nexus_fs
+
+# Initialize backend for scan
+scan_id = "scan-20251118-123456"
+team_id = "team-abc123"
+nexus_fs = get_nexus_fs()
+backend = NexusBackend(scan_id, team_id, nexus_fs)
+
+# Create specialized agent
+subfinder_agent = create_subfinder_agent(
+    scan_id=scan_id,
+    backend=backend,
+    model=get_litellm("claude-3-5-sonnet"),
+    tools=[run_subfinder_celery_tool]  # Custom Celery tool
+)
+
+# Run agent
+result = subfinder_agent.invoke({
+    "messages": [{
+        "role": "user",
+        "content": "Discover subdomains for target.com and save results"
+    }]
+})
+
+# Files automatically saved to: s3://threatweaver-scans/team-abc123/scan-20251118-123456/
+```
+
+**Key Advantages**:
+- ✅ **Standard Interface**: Implements DeepAgents' `BackendProtocol` (no custom middleware needed)
+- ✅ **File Tools Built-in**: DeepAgents automatically provides `write_file`, `read_file`, `edit_file`, `ls`, `glob`, `grep`
+- ✅ **Planning Built-in**: Agents get todo list capability automatically
+- ✅ **Sub-agent Spawning**: Use `task` tool to delegate to specialized agents
+- ✅ **Persistent Storage**: Files stored in S3 (production) or local (development) via Nexus
+- ✅ **Multi-tenancy**: Workspace organized by `team_id` and `scan_id`
+
+### Data Flow: End-to-End Scan Workflow
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  User initiates scan via API                                    │
+│  POST /api/v1/scans {target: "target.com", team_id: "team-123"} │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  1. Initialize NexusBackend for scan workspace                  │
+│     scan_id = "scan-20251118-123456"                            │
+│     backend = NexusBackend(scan_id, team_id, nexus_fs)          │
+│     Workspace: s3://threatweaver-scans/team-123/scan-123456/    │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  2. Create ReconCoordinator (DeepAgents agent)                  │
+│     coordinator = create_deep_agent(                            │
+│         model=get_litellm("claude-3-5-sonnet"),                 │
+│         backend=backend,  # ← NexusBackend                      │
+│         system_prompt="Orchestrate reconnaissance..."           │
+│     )                                                            │
+│  • Built-in planning tool (todo list)                           │
+│  • Built-in file tools (write_file, read_file, etc.)            │
+│  • Built-in sub-agent spawning (task tool)                      │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  3. Coordinator creates task plan (automatic via DeepAgents)    │
+│     ☐ Discover subdomains (Subfinder)                           │
+│     ☐ Probe HTTP services (HTTPx)                               │
+│     ☐ Scan high-value targets (Nmap)                            │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  4. Coordinator spawns SubfinderAgent (via task tool)           │
+│     subfinder_agent = create_subfinder_agent(scan_id, backend)  │
+│     result = subfinder_agent.invoke({"messages": [...]})        │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  5. SubfinderAgent executes tool via Celery + Docker            │
+│     # Custom Celery tool provided to agent                      │
+│     celery_task = run_subfinder.delay(domain="target.com")      │
+│     subdomains = wait_for_result(celery_task)                   │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  6. SubfinderAgent saves results via write_file (built-in)      │
+│     write_file("/recon/subfinder/results.json", subdomains)     │
+│     write_file("/recon/subfinder/summary.md", "Found 42 subs")  │
+│  • NexusBackend writes to S3 automatically                      │
+│  • Auto-versioned (rollback capability)                         │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  7. Coordinator reads results and analyzes (LLM via LiteLLM)    │
+│     results = read_file("/recon/subfinder/results.json")        │
+│     high_value = llm.analyze("Prioritize targets by risk")      │
+│  • Loads historical context via Nexus Memory API                │
+│  • Compares with previous scans (diff detection)                │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  8. Conditional workflow: Spawn HTTPx → Nmap (via task tool)    │
+│     if high_value_targets:                                      │
+│         httpx_agent = create_httpx_agent(scan_id, backend)      │
+│         nmap_agent = create_nmap_agent(scan_id, backend)        │
+└────────────────────┬─────────────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  9. Handoff to AssessmentEngine (persisted to Nexus)            │
+│     write_file("/recon/handoff.json", {                         │
+│         "subdomains": [...],                                    │
+│         "live_hosts": [...],                                    │
+│         "high_value_targets": [...]                             │
+│     })                                                           │
+│  • Available for AssessmentEngine                               │
+│  • Queryable for future scans (diff detection)                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Integration Benefits
+
+**1. Best-of-Breed Components**:
+- DeepAgents: Battle-tested agent orchestration (LangChain foundation)
+- Nexus: Purpose-built for AI agent workloads (versioning, memory, ReBAC)
+- LiteLLM: Flexibility to use optimal model for each task (cost + performance)
+
+**2. Clear Separation of Concerns**:
+- Orchestration logic: DeepAgents (planning, sub-agents, HITL)
+- Data persistence: Nexus (files, memory, search)
+- Tool execution: Celery (background jobs)
+- Security isolation: Docker (sandboxing)
+
+**3. Scalability**:
+- DeepAgents: Horizontal scaling via LangGraph's checkpointing
+- Nexus: Multi-backend storage (S3/GCS for unlimited scale)
+- Celery: Distributed task queue (thousands of concurrent scans)
+
+**4. Developer Experience**:
+- DeepAgents: LangGraph Studio for visual debugging
+- Nexus: Workspace snapshots for time-travel debugging
+- Local development: Same code runs locally (Nexus embedded mode) and production (server mode)
+
+### Comparison: DeepAgents FilesystemMiddleware vs. Nexus
+
+| Feature | DeepAgents Filesystem | Nexus |
+|---------|----------------------|-------|
+| **File Operations** | ✅ Read, write, edit | ✅ Read, write, edit, search |
+| **Versioning** | ❌ No versioning | ✅ Complete version history |
+| **Memory API** | ❌ No persistent memory | ✅ Semantic search, LLM Q&A |
+| **Multi-Backend** | ❌ Local filesystem only | ✅ S3, GCS, local, MongoDB, Redis |
+| **Access Control** | ❌ OS-level permissions | ✅ ReBAC (fine-grained, multi-tenant) |
+| **Deduplication** | ❌ No deduplication | ✅ 30-50% storage savings |
+| **Workspace Snapshots** | ❌ Not supported | ✅ Time-travel debugging |
+| **Batch Operations** | ❌ Single-file only | ✅ 4x faster bulk uploads |
+| **Production Ready** | ⚠️ Single-server only | ✅ Distributed, multi-tenant |
+
+**Decision**: Use Nexus to replace DeepAgents' FilesystemMiddleware for production-grade storage, versioning, and multi-tenancy support.
+
+### Implementation Roadmap
+
+**Phase 1: MVP** (Current):
+- ✅ DeepAgents installed (`langgraph>=0.2.45`)
+- ✅ LiteLLM integrated (`litellm>=1.51.0`)
+- ✅ Nexus installed (`nexus-ai-fs>=0.5.6`)
+- ☐ Implement NexusBackend (BackendProtocol)
+- ☐ Create agent_factory.py with security agent creators
+- ☐ Create ReconCoordinator with create_deep_agent()
+- ☐ Create AssessmentSupervisor with create_deep_agent()
+
+**Phase 2: Intelligence Layer** (Month 4-6):
+- ☐ Nexus Memory API: Historical scan comparison
+- ☐ Semantic search across findings
+- ☐ ACE learning loops: Autonomous knowledge consolidation
+- ☐ Workspace snapshots for diff detection
+
+**Phase 3: Scale** (Month 7-9):
+- ☐ Nexus server mode: Multi-tenant production deployment
+- ☐ PostgreSQL backend for Nexus metadata
+- ☐ S3 backend for scan artifacts
+- ☐ ReBAC policies for team isolation
 
 ---
 
@@ -931,9 +1294,9 @@ Agent Specification:
     - Attack surface summary generation
 
   Middleware:
-    - TodoListMiddleware: Dynamic task planning
-    - SubAgentMiddleware: Spawn specialized agents
-    - FilesystemMiddleware: Workspace access
+    - TodoListMiddleware: Dynamic task planning (DeepAgents)
+    - SubAgentMiddleware: Spawn specialized agents (DeepAgents)
+    - NexusMiddleware: Workspace access, versioning, memory API (Custom)
 
   Workflow Patterns:
     1. Linear: Subdomain → HTTP Probing → Network Mapping
@@ -970,7 +1333,7 @@ recon_coordinator = create_deep_agent(
             network_agent,
             httpx_agent
         ]),
-        FilesystemMiddleware(workspace="/workspace")
+        NexusMiddleware(workspace_root=f"/workspace/{scan_id}")
     ]
 )
 ```
@@ -1247,7 +1610,7 @@ exploit_coordinator = create_deep_agent(
     middleware=[
         TodoListMiddleware(),
         SubAgentMiddleware(agents=[sqli_agent]),
-        FilesystemMiddleware(workspace="/workspace")
+        NexusMiddleware(workspace_root=f"/workspace/{scan_id}")
     ]
 )
 ```
@@ -1598,24 +1961,32 @@ workflow:
 - Go for tool wrappers (Nuclei, Subfinder SDKs)
 
 **Agent Orchestration**:
-- LangGraph: Workflow graphs, stateful agents
+- DeepAgents: Hierarchical coordination framework (TodoListMiddleware, SubAgentMiddleware, HITL)
+- LangGraph: StateGraph compilation, workflow graphs, stateful agents, checkpointing
 - LangChain: Tool abstractions, LLM integrations
-- DeepAgents patterns: Hierarchical coordination
+- LiteLLM: Multi-model provider abstraction (300+ models)
+
+**Workspace & Memory** (Nexus):
+- Nexus: AI-native filesystem with versioning, memory API, semantic search
+- Multi-backend storage: S3 (production), GCS, local filesystem (development)
+- ReBAC permissions: Fine-grained access control for multi-tenancy
+- Content deduplication: 30-50% storage cost savings
+- Workspace snapshots: Time-travel debugging, diff detection
 
 **Task Queue**:
 - Redis: Message broker
-- Celery: Distributed task execution
+- Celery: Distributed task execution (security tool jobs)
 - Python RQ: Simple async tasks
 
-**LLM Providers**:
+**LLM Providers** (via LiteLLM):
 - OpenAI: GPT-4 for complex reasoning
 - Anthropic: Claude for analysis and reporting
-- Local: Ollama for cost-sensitive tasks
+- OpenRouter: Access to 300+ models (cost optimization)
+- Local: Ollama for cost-sensitive tasks (enterprise air-gapped)
 
-**Workspace & Memory**:
-- Nexus: Virtual filesystem, versioned storage
-- PostgreSQL: Scan metadata, user management
-- Elasticsearch: Full-text search, analytics
+**Database**:
+- PostgreSQL: Scan metadata, user management, Nexus metadata
+- Elasticsearch: Full-text search, analytics (Phase 2)
 
 **Security Tools**:
 - Nmap: Network scanning (via python-nmap)
