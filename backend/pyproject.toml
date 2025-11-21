@@ -32,6 +32,7 @@ dependencies = [
     "e2b-code-interpreter>=2.3.0",
     "certifi>=2025.11.12",
     "e2b>=2.7.0",
+    "deepagents",
 ]
 
 [project.optional-dependencies]
@@ -85,6 +86,9 @@ plugins = ["pydantic.mypy"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-v --cov=src --cov-report=term-missing"
+
+[tool.uv.sources]
+deepagents = { git = "https://github.com/langchain-ai/deepagents.git", subdirectory = "libs/deepagents" }
 
 [dependency-groups]
 dev = [
