@@ -1,0 +1,20 @@
+# SQLMap - SQL Injection Testing Tool
+FROM pberba/sqlmap:latest
+
+# Set working directory
+WORKDIR /workspace
+
+# Create workspace directory
+RUN mkdir -p /workspace
+
+# Entry point is sqlmap
+ENTRYPOINT ["python", "/sqlmap/sqlmap.py"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD python /sqlmap/sqlmap.py --version || exit 1
+
+# Labels
+LABEL org.threatweaver.tool="sqlmap"
+LABEL org.threatweaver.category="exploitation"
+LABEL org.threatweaver.version="latest"

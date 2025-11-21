@@ -1,0 +1,115 @@
+# Docker Compose for ThreatWeaver Security Tools
+# This file defines all security tool containers for local development
+
+version: '3.8'
+
+services:
+  # Subfinder - Subdomain Discovery
+  subfinder:
+    build:
+      context: docker
+      dockerfile: Dockerfile.subfinder
+    image: threatweaver/subfinder:latest
+    container_name: threatweaver-subfinder
+    networks:
+      - threatweaver-tools
+    volumes:
+      - ./workspace:/workspace
+    cpus: '1.0'
+    mem_limit: 1g
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  # HTTPx - HTTP Probing
+  httpx:
+    build:
+      context: docker
+      dockerfile: Dockerfile.httpx
+    image: threatweaver/httpx:latest
+    container_name: threatweaver-httpx
+    networks:
+      - threatweaver-tools
+    volumes:
+      - ./workspace:/workspace
+    cpus: '2.0'
+    mem_limit: 2g
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  # Nmap - Port Scanner
+  nmap:
+    build:
+      context: docker
+      dockerfile: Dockerfile.nmap
+    image: threatweaver/nmap:latest
+    container_name: threatweaver-nmap
+    networks:
+      - threatweaver-tools
+    volumes:
+      - ./workspace:/workspace
+    cpus: '2.0'
+    mem_limit: 2g
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+  # Nuclei - Vulnerability Scanner
+  nuclei:
+    build:
+      context: docker
+      dockerfile: Dockerfile.nuclei
+    image: threatweaver/nuclei:latest
+    container_name: threatweaver-nuclei
+    networks:
+      - threatweaver-tools
+    volumes:
+      - ./workspace:/workspace
+    cpus: '2.0'
+    mem_limit: 4g
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  # SQLMap - SQL Injection Tester
+  sqlmap:
+    build:
+      context: docker
+      dockerfile: Dockerfile.sqlmap
+    image: threatweaver/sqlmap:latest
+    container_name: threatweaver-sqlmap
+    networks:
+      - threatweaver-tools
+    volumes:
+      - ./workspace:/workspace
+    cpus: '2.0'
+    mem_limit: 2g
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  threatweaver-tools:
+    driver: bridge
+    name: threatweaver-tools
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  workspace:
+    driver: local

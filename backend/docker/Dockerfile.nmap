@@ -1,0 +1,20 @@
+# Nmap - Port Scanning Tool
+FROM instrumentisto/nmap:latest
+
+# Set working directory
+WORKDIR /workspace
+
+# Create workspace directory
+RUN mkdir -p /workspace
+
+# Entry point is nmap
+ENTRYPOINT ["nmap"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD nmap --version || exit 1
+
+# Labels
+LABEL org.threatweaver.tool="nmap"
+LABEL org.threatweaver.category="assessment"
+LABEL org.threatweaver.version="latest"

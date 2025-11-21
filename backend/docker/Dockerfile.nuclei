@@ -1,0 +1,20 @@
+# Nuclei - Vulnerability Scanner
+FROM projectdiscovery/nuclei:latest
+
+# Set working directory
+WORKDIR /workspace
+
+# Create workspace directory
+RUN mkdir -p /workspace
+
+# Entry point is nuclei
+ENTRYPOINT ["nuclei"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD nuclei -version || exit 1
+
+# Labels
+LABEL org.threatweaver.tool="nuclei"
+LABEL org.threatweaver.category="assessment"
+LABEL org.threatweaver.version="latest"

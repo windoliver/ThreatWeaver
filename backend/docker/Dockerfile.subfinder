@@ -1,0 +1,20 @@
+# Subfinder - Subdomain Discovery Tool
+FROM projectdiscovery/subfinder:latest
+
+# Set working directory
+WORKDIR /workspace
+
+# Create workspace directory
+RUN mkdir -p /workspace
+
+# Entry point is subfinder
+ENTRYPOINT ["subfinder"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD subfinder -version || exit 1
+
+# Labels
+LABEL org.threatweaver.tool="subfinder"
+LABEL org.threatweaver.category="reconnaissance"
+LABEL org.threatweaver.version="latest"
