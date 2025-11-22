@@ -219,23 +219,49 @@ class SubfinderAgent:
         }
 
         results_json = json.dumps(results_data, indent=2)
-        write_result = self.backend.write(
-            "/recon/subfinder/subdomains.json",
-            results_json
-        )
+
+        # Try to write, if file exists read and replace entire content
+        json_path = "/recon/subfinder/subdomains.json"
+        write_result = self.backend.write(json_path, results_json)
 
         if write_result.error:
-            logger.error(f"Failed to store results: {write_result.error}")
-            raise SubfinderError(f"Failed to store results: {write_result.error}")
+            if "already exists" in write_result.error:
+                # File exists, read current content and replace it entirely
+                old_content = self.backend.read(json_path)
+                if old_content and not old_content.startswith("Error:"):
+                    # Strip line numbers from read result (format: "     1→content")
+                    old_lines = [line.split("→", 1)[1] if "→" in line else line
+                                for line in old_content.split("\n")]
+                    old_content_clean = "\n".join(old_lines)
+
+                    edit_result = self.backend.edit(json_path, old_content_clean, results_json)
+                    if edit_result.error:
+                        logger.error(f"Failed to update results: {edit_result.error}")
+                        raise SubfinderError(f"Failed to update results: {edit_result.error}")
+                else:
+                    logger.error(f"Failed to read existing results")
+                    raise SubfinderError(f"Failed to read existing results")
+            else:
+                logger.error(f"Failed to store results: {write_result.error}")
+                raise SubfinderError(f"Failed to store results: {write_result.error}")
 
         # Store raw output for debugging
-        write_result = self.backend.write(
-            "/recon/subfinder/raw_output.txt",
-            raw_output
-        )
+        raw_path = "/recon/subfinder/raw_output.txt"
+        write_result = self.backend.write(raw_path, raw_output)
 
         if write_result.error:
-            logger.warning(f"Failed to store raw output: {write_result.error}")
+            if "already exists" in write_result.error:
+                # File exists, read current content and replace it entirely
+                old_content = self.backend.read(raw_path)
+                if old_content and not old_content.startswith("Error:"):
+                    # Strip line numbers from read result
+                    old_lines = [line.split("→", 1)[1] if "→" in line else line
+                                for line in old_content.split("\n")]
+                    old_content_clean = "\n".join(old_lines)
+
+                    self.backend.edit(raw_path, old_content_clean, raw_output)
+            else:
+                logger.warning(f"Failed to store raw output: {write_result.error}")
 
         logger.info(f"Stored results in Nexus workspace: {self.scan_id}")
 

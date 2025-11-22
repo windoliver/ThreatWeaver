@@ -77,7 +77,9 @@ class TestSubfinderIntegration:
 
         # Assert
         assert result.exit_code == 0
-        assert "subfinder" in result.stdout.lower() or "version" in result.stdout.lower()
+        # Subfinder outputs version to stderr
+        output = (result.stdout + result.stderr).lower()
+        assert "version" in output or "subfinder" in output
 
     def test_real_subfinder_execution(self, real_agent):
         """Test Subfinder execution with real E2B sandbox."""
@@ -130,7 +132,7 @@ class TestSubfinderIntegration:
         # This test uses a very short timeout to trigger timeout behavior
         # Note: May not always trigger timeout depending on Subfinder speed
 
-        with pytest.raises(SubfinderError, match="timed out"):
+        with pytest.raises(SubfinderError, match="(timed out|deadline exceeded)"):
             # Use 1 second timeout - almost guaranteed to timeout
             real_agent.execute("example.com", timeout=1)
 

@@ -12,9 +12,13 @@ Reference:
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from nexus.backends.gcs_connector import GCSConnectorBackend
 from nexus.backends.local import LocalBackend
 from nexus.core.nexus_fs import NexusFS
+
+# Load .env file if it exists
+load_dotenv()
 
 
 def get_nexus_fs() -> NexusFS:
@@ -83,7 +87,7 @@ def get_nexus_fs() -> NexusFS:
         local_path = os.getenv("NEXUS_LOCAL_PATH", "./nexus-data")
         Path(local_path).mkdir(parents=True, exist_ok=True)
 
-        backend = LocalBackend(storage_path=local_path)
+        backend = LocalBackend(root_path=local_path)
 
     # Create NexusFS with backend
     db_path = os.getenv("NEXUS_DB_PATH", "./nexus-metadata.db")
