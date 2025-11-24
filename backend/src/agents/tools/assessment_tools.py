@@ -20,6 +20,7 @@ from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
 from agents.assessment.nuclei_agent import NucleiAgent, SeverityLevel
+from agents.assessment.sqlmap_agent import SQLMapAgent
 from agents.backends.nexus_backend import NexusBackend
 from config.nexus_config import get_nexus_fs
 
@@ -146,4 +147,118 @@ def run_nuclei(
             "success": False,
             "error": str(e),
             "targets_count": len(targets)
+        })
+
+
+@tool
+def run_sqlmap(
+    target_url: str,
+    config: RunnableConfig,  # LangGraph injects this automatically
+    data: Optional[str] = None,
+    cookie: Optional[str] = None,
+    level: int = 2,
+    risk: int = 1,
+    timeout: int = 3600,
+    enumerate_dbs: bool = True,
+) -> str:
+    """
+    Test a URL for SQL injection vulnerabilities using SQLMap.
+
+    This tool runs SQLMap in an isolated E2B sandbox to detect SQL injection
+    vulnerabilities and enumerate database information.
+
+    IMPORTANT: This tool uses safe defaults (read-only operations). For data
+    extraction operations, human-in-the-loop approval is required.
+
+    Results are automatically stored in Nexus workspace at:
+    /{team_id}/{thread_id}/assessment/sqlmap/findings.json
+
+    Args:
+        target_url: URL with parameters to test (e.g., "https://example.com/page?id=1")
+        config: Runtime configuration (auto-injected by LangGraph)
+        data: POST data string (e.g., "username=test&password=test")
+        cookie: Cookie header value for authenticated testing
+        level: Test level 1-5 (default: 2, higher = more thorough but slower)
+        risk: Risk level 1-3 (default: 1 = safe, no destructive tests)
+        timeout: Execution timeout in seconds (default: 3600, max: 3600)
+        enumerate_dbs: Enumerate databases if injection is found (default: True)
+
+    Returns:
+        JSON string with SQL injection findings and database info
+
+    Example:
+        result = run_sqlmap(
+            target_url="https://example.com/search?q=test",
+            level=2,
+            risk=1
+        )
+        # Returns: '{"vulnerable": true, "findings": [...], "databases": [...]}'
+    """
+    # Extract thread_id and create backend
+    scan_id, team_id, backend = _get_backend_from_config(config)
+
+    try:
+        # Create and execute SQLMap agent
+        agent = SQLMapAgent(
+            scan_id=scan_id,
+            team_id=team_id,
+            nexus_backend=backend
+        )
+
+        findings = agent.execute(
+            target_url=target_url,
+            data=data,
+            cookie=cookie,
+            level=level,
+            risk=risk,
+            timeout=timeout,
+            enumerate_dbs=enumerate_dbs,
+            enumerate_tables=False,  # Requires HITL approval
+            batch=True
+        )
+
+        agent.cleanup()
+
+        # Convert findings to dict for JSON serialization
+        findings_dict = [f.model_dump() for f in findings]
+
+        # Extract database info
+        databases = []
+        dbms = None
+        for finding in findings:
+            if finding.databases:
+                databases.extend(finding.databases)
+            if finding.dbms:
+                dbms = finding.dbms
+
+        # Return structured result
+        result = {
+            "success": True,
+            "target_url": target_url,
+            "vulnerable": len(findings) > 0,
+            "findings_count": len(findings),
+            "dbms": dbms,
+            "databases": list(set(databases)),
+            "findings": findings_dict,
+            "storage_path": "/assessment/sqlmap/findings.json",
+            "note": "For data extraction, use request_approval tool first"
+        }
+
+        if findings:
+            logger.info(
+                f"SQLMap found {len(findings)} injection points "
+                f"(DBMS: {dbms or 'unknown'})"
+            )
+        else:
+            logger.info(f"SQLMap found no injection points in {target_url}")
+
+        return json.dumps(result, indent=2)
+
+    except Exception as e:
+        logger.error(f"SQLMap tool failed: {e}")
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "target_url": target_url,
+            "vulnerable": False
         })
