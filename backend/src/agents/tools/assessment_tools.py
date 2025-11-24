@@ -19,10 +19,10 @@ from typing import List, Optional
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
-from agents.assessment.nuclei_agent import NucleiAgent, SeverityLevel
-from agents.assessment.sqlmap_agent import SQLMapAgent
-from agents.backends.nexus_backend import NexusBackend
-from config.nexus_config import get_nexus_fs
+from src.agents.assessment.nuclei_agent import NucleiAgent, SeverityLevel
+from src.agents.assessment.sqlmap_agent import SQLMapAgent
+from src.agents.backends.nexus_backend import NexusBackend
+from src.config.nexus_config import get_nexus_fs
 
 logger = logging.getLogger(__name__)
 

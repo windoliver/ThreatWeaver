@@ -11,7 +11,7 @@ import threading
 from typing import Optional
 from dataclasses import dataclass
 
-from agents.backends.nexus_backend import NexusBackend
+from src.agents.backends.nexus_backend import NexusBackend
 
 
 @dataclass
@@ -68,7 +68,7 @@ def get_agent_context() -> AgentContext:
     # Try to auto-create context from LangGraph runtime
     try:
         from langchain_core.runnables.config import var_child_runnable_config
-        from config.nexus_config import get_nexus_fs
+        from src.config.nexus_config import get_nexus_fs
 
         config = var_child_runnable_config.get(None)
         if config:
