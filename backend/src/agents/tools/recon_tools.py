@@ -23,6 +23,7 @@ from agents.recon.subfinder_agent import SubfinderAgent
 from agents.recon.httpx_agent import HTTPxAgent
 from agents.recon.nmap_agent import NmapAgent, ScanProfile
 from agents.recon.ffuf_agent import FfufAgent, WordlistType
+from agents.recon.wafw00f_agent import Wafw00fAgent
 from agents.backends.nexus_backend import NexusBackend
 from config.nexus_config import get_nexus_fs
 
@@ -386,4 +387,78 @@ def run_ffuf(
             "success": False,
             "error": str(e),
             "target_url": target_url
+        })
+
+
+@tool
+def run_wafw00f(
+    targets: List[str],
+    config: RunnableConfig,  # LangGraph injects this automatically
+    timeout: int = 300,
+) -> str:
+    """
+    Detect Web Application Firewalls (WAFs) on target URLs using wafw00f.
+
+    This tool runs wafw00f in an isolated E2B sandbox to identify WAFs
+    protecting target web applications. Knowing the WAF in place is critical
+    for adjusting exploitation techniques during penetration testing.
+
+    Results are automatically stored in Nexus workspace at:
+    /{team_id}/{thread_id}/recon/wafw00f/findings.json
+
+    Args:
+        targets: List of URLs to scan (e.g., ["https://example.com"])
+        config: Runtime configuration (auto-injected by LangGraph)
+        timeout: Execution timeout in seconds (default: 300)
+
+    Returns:
+        JSON string with WAF detection results and metadata
+
+    Example:
+        result = run_wafw00f(targets=["https://example.com", "https://test.com"])
+        # Returns: '{"waf_detected_count": 1, "findings": [{"target": "...", "waf_name": "Cloudflare"}]}'
+    """
+    # Extract thread_id and create backend
+    scan_id, team_id, backend = _get_backend_from_config(config)
+
+    try:
+        # Create and execute wafw00f agent
+        agent = Wafw00fAgent(
+            scan_id=scan_id,
+            team_id=team_id,
+            nexus_backend=backend
+        )
+
+        findings = agent.execute(
+            targets=targets,
+            timeout=timeout
+        )
+
+        agent.cleanup()
+
+        # Summarize detected WAFs
+        detected_wafs = {}
+        for f in findings:
+            if f.waf_detected and f.waf_name:
+                detected_wafs[f.waf_name] = detected_wafs.get(f.waf_name, 0) + 1
+
+        # Return structured result
+        result = {
+            "success": True,
+            "targets_count": len(targets),
+            "waf_detected_count": sum(1 for f in findings if f.waf_detected),
+            "detected_wafs": detected_wafs,
+            "findings": [f.model_dump() for f in findings],
+            "storage_path": "/recon/wafw00f/findings.json"
+        }
+
+        logger.info(f"wafw00f detected WAFs on {result['waf_detected_count']}/{len(targets)} targets")
+        return json.dumps(result, indent=2)
+
+    except Exception as e:
+        logger.error(f"wafw00f tool failed: {e}")
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "targets_count": len(targets)
         })

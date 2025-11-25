@@ -26,7 +26,7 @@ from deepagents import create_deep_agent, SubAgent
 from langchain_openai import ChatOpenAI
 
 from agents.backends.nexus_backend import NexusBackend
-from agents.tools.recon_tools import run_subfinder, run_httpx, run_nmap, run_ffuf
+from agents.tools.recon_tools import run_subfinder, run_httpx, run_nmap, run_ffuf, run_wafw00f
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ def _get_tools():
         'httpx': run_httpx,
         'nmap': run_nmap,
         'ffuf': run_ffuf,
+        'wafw00f': run_wafw00f,
     }
 
 
@@ -280,6 +281,7 @@ You can spawn specialized sub-agents using the task() tool:
 - "httpx" - Probes subdomains for live HTTP/HTTPS services
 - "nmap" - Scans live hosts for open ports and services
 - "ffuf" - Discovers hidden directories and files via brute-forcing
+- "wafw00f" - Detects Web Application Firewalls (WAFs)
 
 **Workflow Strategy:**
 1. DISCOVERY: Spawn subfinder sub-agent to discover subdomains
@@ -295,16 +297,21 @@ You can spawn specialized sub-agents using the task() tool:
    - task(agent_type="httpx", description="Probe these targets: {list}")
    - Read results from /recon/httpx/live_hosts.json
 
-4. DIRECTORY DISCOVERY: Spawn ffuf sub-agent on key targets
+4. WAF DETECTION: Spawn wafw00f sub-agent on live hosts
+   - task(agent_type="wafw00f", description="Detect WAFs on these targets: {list}")
+   - Read results from /recon/wafw00f/findings.json
+   - Knowing the WAF is critical for adjusting exploitation techniques
+
+5. DIRECTORY DISCOVERY: Spawn ffuf sub-agent on key targets
    - task(agent_type="ffuf", description="Discover hidden paths on {url}")
    - Read results from /recon/ffuf/findings.json
    - Focus on admin panels, APIs, and high-value hosts
 
-5. PORT SCANNING: Spawn nmap sub-agent to scan live hosts
+6. PORT SCANNING: Spawn nmap sub-agent to scan live hosts
    - task(agent_type="nmap", description="Scan these hosts: {list}")
    - Read results from /recon/nmap/scan_results.json
 
-6. FINAL REPORT: Aggregate all findings
+7. FINAL REPORT: Aggregate all findings
    - Write comprehensive report to /recon/final_report.json
    - Include: summary, high-risk findings, recommendations
 
@@ -314,6 +321,7 @@ You can spawn specialized sub-agents using the task() tool:
 - If old SSH/HTTP versions: Flag as MEDIUM RISK
 - If admin/staging exposed: Flag as MEDIUM RISK
 - If hidden admin paths found: Flag as HIGH RISK
+- If WAF detected: Note in report and adjust exploitation strategy accordingly
 
 **Output Format:**
 Write final report as JSON:
@@ -375,6 +383,20 @@ Use run_ffuf tool to discover hidden directories and files. Read results from /r
 
 Report any interesting findings like admin panels, backup files, or sensitive endpoints.""",
             tools=[tools['ffuf']]
+        ),
+        SubAgent(
+            name="wafw00f",
+            description="WAF detection specialist using wafw00f tool",
+            system_prompt="""You are a WAF Detection Specialist.
+Use run_wafw00f tool to detect Web Application Firewalls. Read results from /recon/wafw00f/findings.json and report findings.
+
+**Key Information to Report:**
+- Which targets have WAFs detected
+- WAF vendor/product names (e.g., Cloudflare, AWS WAF, Akamai)
+- Confidence level of detection (high, medium, low)
+
+Knowing the WAF is critical for adjusting exploitation techniques. Report all detected WAFs clearly.""",
+            tools=[tools['wafw00f']]
         )
     ]
 
