@@ -22,6 +22,7 @@ from langchain_core.runnables import RunnableConfig
 from src.agents.assessment.nuclei_agent import NucleiAgent, SeverityLevel
 from src.agents.assessment.sqlmap_agent import SQLMapAgent
 from src.agents.assessment.xsstrike_agent import XSStrikeAgent
+from src.agents.assessment.testssl_agent import TestsslAgent
 from src.agents.backends.nexus_backend import NexusBackend
 from src.config.nexus_config import get_nexus_fs
 
@@ -361,4 +362,96 @@ def run_xsstrike(
             "error": str(e),
             "target_url": target_url,
             "vulnerable": False
+        })
+
+
+@tool
+def run_testssl(
+    target: str,
+    config: RunnableConfig,  # LangGraph injects this automatically
+    port: int = 443,
+    check_vulnerabilities: bool = True,
+    timeout: int = 600,
+) -> str:
+    """
+    Test TLS/SSL security configuration using testssl.sh.
+
+    This tool runs testssl.sh in an isolated E2B sandbox to analyze TLS/SSL
+    security including protocols, ciphers, certificates, and known vulnerabilities.
+
+    Tests include:
+    - Protocol versions (SSLv2, SSLv3, TLS 1.0-1.3)
+    - Cipher suite strength and security
+    - Certificate validation and expiry
+    - Known vulnerabilities: Heartbleed, POODLE, ROBOT, DROWN, etc.
+
+    Results are automatically stored in Nexus workspace at:
+    /{team_id}/{thread_id}/assessment/testssl/findings.json
+
+    Args:
+        target: Target hostname or URL (e.g., "example.com" or "https://example.com")
+        config: Runtime configuration (auto-injected by LangGraph)
+        port: Port to test (default: 443)
+        check_vulnerabilities: Test for known TLS/SSL vulnerabilities (default: True)
+        timeout: Execution timeout in seconds (default: 600)
+
+    Returns:
+        JSON string with TLS/SSL findings and security rating
+
+    Example:
+        result = run_testssl(target="example.com")
+        # Returns: '{"overall_rating": "A", "vulnerabilities": [], "protocols": {...}}'
+    """
+    # Extract thread_id and create backend
+    scan_id, team_id, backend = _get_backend_from_config(config)
+
+    try:
+        # Create and execute testssl agent
+        agent = TestsslAgent(
+            scan_id=scan_id,
+            team_id=team_id,
+            nexus_backend=backend
+        )
+
+        finding = agent.execute(
+            target=target,
+            port=port,
+            check_vulnerabilities=check_vulnerabilities,
+            timeout=timeout
+        )
+
+        agent.cleanup()
+
+        # Summarize vulnerabilities
+        vuln_counts = {}
+        for v in finding.vulnerabilities:
+            vuln_counts[v.severity] = vuln_counts.get(v.severity, 0) + 1
+
+        # Return structured result
+        result = {
+            "success": True,
+            "target": finding.target,
+            "overall_rating": finding.overall_rating,
+            "protocols": finding.protocols,
+            "vulnerability_count": len(finding.vulnerabilities),
+            "vulnerability_summary": vuln_counts,
+            "vulnerabilities": [v.model_dump() for v in finding.vulnerabilities],
+            "certificate": finding.certificate.model_dump() if finding.certificate else None,
+            "storage_path": "/assessment/testssl/findings.json"
+        }
+
+        high_vulns = sum(1 for v in finding.vulnerabilities if v.severity in ["critical", "high"])
+        logger.info(
+            f"testssl completed for {target}: Rating {finding.overall_rating}, "
+            f"{high_vulns} high+ vulnerabilities"
+        )
+
+        return json.dumps(result, indent=2)
+
+    except Exception as e:
+        logger.error(f"testssl tool failed: {e}")
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "target": target
         })

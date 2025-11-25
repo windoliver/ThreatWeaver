@@ -36,7 +36,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 
 from src.agents.backends.nexus_backend import NexusBackend
-from src.agents.tools.assessment_tools import run_nuclei, run_sqlmap, run_xsstrike
+from src.agents.tools.assessment_tools import run_nuclei, run_sqlmap, run_xsstrike, run_testssl
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,14 @@ def _get_tools():
     """
     Get assessment tools for sub-agents.
 
-    The tools (run_nuclei, run_sqlmap, run_xsstrike) automatically extract thread_id from
+    The tools (run_nuclei, run_sqlmap, run_xsstrike, run_testssl) automatically extract thread_id from
     LangGraph's RunnableConfig and create their own backend. No binding needed.
     """
     return {
         'nuclei': run_nuclei,
         'sqlmap': run_sqlmap,
-        'xsstrike': run_xsstrike
+        'xsstrike': run_xsstrike,
+        'testssl': run_testssl
     }
 
 
@@ -256,6 +257,57 @@ Be thorough in testing all input vectors.""",
     )
 
 
+def create_testssl_subagent(tools: Dict[str, Any]) -> SubAgent:
+    """
+    Create testssl.sh sub-agent specification.
+
+    This sub-agent specializes in TLS/SSL security testing.
+
+    Args:
+        tools: Dictionary of assessment tools (nuclei, sqlmap, xsstrike, testssl)
+
+    Returns:
+        SubAgent configuration for TLS/SSL testing
+    """
+    return SubAgent(
+        name="testssl",
+        description="TLS/SSL security testing specialist using testssl.sh",
+        system_prompt="""You are a TLS/SSL Security Testing Specialist.
+
+Your mission: Analyze TLS/SSL security configuration of web servers.
+
+**Available Tools:**
+- run_testssl: Tests TLS/SSL security configuration using testssl.sh
+
+**Workflow:**
+1. Use run_testssl with the target hostname
+2. Analyze the security rating and findings
+3. Report vulnerabilities and misconfigurations
+
+**Tests Performed:**
+- Protocol versions (SSLv2, SSLv3, TLS 1.0-1.3)
+- Cipher suite strength
+- Certificate validity and chain
+- Known vulnerabilities: Heartbleed, POODLE, ROBOT, DROWN, FREAK, etc.
+
+**Output Format:**
+- Overall security rating: A+, A, B, C, D, F
+- Supported protocols (highlight weak ones)
+- Certificate details (expiry, key size)
+- Vulnerabilities found with severity
+- Recommendations for remediation
+
+**Risk Assessment:**
+- Critical: Heartbleed, ROBOT, DROWN vulnerable
+- High: SSLv3 or TLS 1.0 enabled, weak ciphers
+- Medium: TLS 1.1 enabled, certificate issues
+- Low: Missing modern protocols (TLS 1.3)
+
+Provide actionable recommendations for improving TLS security.""",
+        tools=[tools['testssl']]
+    )
+
+
 def create_assessment_coordinator(
     scan_id: str,
     team_id: str,
@@ -320,6 +372,7 @@ You can spawn specialized sub-agents using the task() tool:
 - "nuclei" - Vulnerability scanning using Nuclei templates (CVEs, misconfigs, etc.)
 - "sqlmap" - SQL injection testing (requires approval first)
 - "xsstrike" - XSS vulnerability detection using XSStrike
+- "testssl" - TLS/SSL security testing using testssl.sh
 
 **Available Tools:**
 - request_approval: Request HITL approval for sensitive operations
@@ -332,7 +385,12 @@ You can spawn specialized sub-agents using the task() tool:
    - Read results from /assessment/nuclei/findings.json
    - Categorize findings by severity and type
 
-2. FINDING ANALYSIS:
+2. TLS/SSL SECURITY (testssl):
+   - task(agent_type="testssl", description="Test TLS security for {{host}}")
+   - Read results from /assessment/testssl/findings.json
+   - Check for weak protocols (SSLv3, TLS 1.0), weak ciphers, and vulnerabilities
+
+3. FINDING ANALYSIS:
    - Identify critical and high severity findings
    - Look for SQL injection indicators:
      * Template IDs containing "sqli" or "sql-injection"
@@ -341,20 +399,20 @@ You can spawn specialized sub-agents using the task() tool:
    - Look for XSS indicators in forms and query parameters
    - Document all findings with context
 
-3. XSS TESTING (if forms/parameters found):
+4. XSS TESTING (if forms/parameters found):
    - task(agent_type="xsstrike", description="Test {{url}} for XSS vulnerabilities")
    - Read results from /assessment/xsstrike/findings.json
    - Document vulnerable parameters and payload types
 
-4. CONDITIONAL ESCALATION (if SQLi detected):
+5. CONDITIONAL ESCALATION (if SQLi detected):
    a. Request HITL approval FIRST:
       - request_approval(action="SQL injection deep testing", reason="...", targets=[...])
    b. Only after approval, spawn SQLMap:
       - task(agent_type="sqlmap", description="Test {{url}} for SQL injection")
    c. Read SQLMap results from /assessment/sqlmap/findings.json
 
-5. RISK ASSESSMENT:
-   Priority order: RCE > SQLi > Auth Bypass > XSS > Info Disclosure
+6. RISK ASSESSMENT:
+   Priority order: RCE > SQLi > Auth Bypass > XSS > TLS vulns > Info Disclosure
    - Critical: RCE, confirmed SQLi with data access, auth bypass
    - High: Unconfirmed SQLi, sensitive data exposure, stored XSS
    - Medium: Reflected XSS, CSRF, information disclosure
@@ -414,7 +472,8 @@ Be thorough, methodical, and security-focused. Your assessment helps protect sys
     sub_agents = [
         create_nuclei_subagent(tools),
         create_sqlmap_subagent(tools),
-        create_xsstrike_subagent(tools)
+        create_xsstrike_subagent(tools),
+        create_testssl_subagent(tools)
     ]
 
     # Coordinator has access to request_approval tool directly
