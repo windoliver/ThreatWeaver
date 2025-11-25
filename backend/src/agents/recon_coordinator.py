@@ -4,7 +4,7 @@ Recon Coordinator - LangGraph-based orchestration of reconnaissance agents.
 This module implements Issue #16: Create Recon Coordinator (LangGraph).
 
 The ReconCoordinator is a DeepAgent that orchestrates the complete reconnaissance
-workflow by spawning and coordinating sub-agents (Subfinder, HTTPx, Nmap).
+workflow by spawning and coordinating sub-agents (Subfinder, HTTPx, Nmap, ffuf).
 
 Architecture:
 - Uses LangChain's DeepAgents framework
@@ -20,15 +20,30 @@ Reference:
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
 from deepagents import create_deep_agent, SubAgent
 from langchain_openai import ChatOpenAI
 
 from agents.backends.nexus_backend import NexusBackend
-from agents.tools.recon_tools import run_subfinder, run_httpx, run_nmap
+from agents.tools.recon_tools import run_subfinder, run_httpx, run_nmap, run_ffuf
 
 logger = logging.getLogger(__name__)
+
+
+def _get_tools():
+    """
+    Get recon tools for sub-agents.
+
+    The tools automatically extract thread_id from LangGraph's RunnableConfig
+    and create their own backend. No binding needed.
+    """
+    return {
+        'subfinder': run_subfinder,
+        'httpx': run_httpx,
+        'nmap': run_nmap,
+        'ffuf': run_ffuf,
+    }
 
 
 def create_subfinder_subagent(
@@ -210,66 +225,6 @@ Be concise and factual. Focus on security-relevant findings."""
     )
 
 
-def _create_bound_tools(scan_id: str, team_id: str, backend: NexusBackend):
-    """
-    Create recon tools with bound context.
-
-    This creates closures around the tools that inject the backend context
-    without relying on thread-local storage (which doesn't work with LangGraph's threading).
-    """
-    from functools import wraps
-    from langchain_core.tools import StructuredTool
-
-    # Create wrapper functions that bind the context
-    def make_run_subfinder():
-        @wraps(run_subfinder.func)
-        def bound_subfinder(*args, **kwargs):
-            # Temporarily set context for this tool execution
-            from agents.context import set_agent_context
-            set_agent_context(scan_id, team_id, backend)
-            return run_subfinder.func(*args, **kwargs)
-
-        # Create new tool with bound function
-        return StructuredTool.from_function(
-            func=bound_subfinder,
-            name=run_subfinder.name,
-            description=run_subfinder.description,
-            args_schema=run_subfinder.args_schema
-        )
-
-    def make_run_httpx():
-        @wraps(run_httpx.func)
-        def bound_httpx(*args, **kwargs):
-            from agents.context import set_agent_context
-            set_agent_context(scan_id, team_id, backend)
-            return run_httpx.func(*args, **kwargs)
-
-        return StructuredTool.from_function(
-            func=bound_httpx,
-            name=run_httpx.name,
-            description=run_httpx.description,
-            args_schema=run_httpx.args_schema
-        )
-
-    def make_run_nmap():
-        @wraps(run_nmap.func)
-        def bound_nmap(*args, **kwargs):
-            from agents.context import set_agent_context
-            set_agent_context(scan_id, team_id, backend)
-            return run_nmap.func(*args, **kwargs)
-
-        return StructuredTool.from_function(
-            func=bound_nmap,
-            name=run_nmap.name,
-            description=run_nmap.description,
-            args_schema=run_nmap.args_schema
-        )
-
-    return {
-        'subfinder': make_run_subfinder(),
-        'httpx': make_run_httpx(),
-        'nmap': make_run_nmap()
-    }
 
 
 def create_recon_coordinator(
@@ -306,14 +261,14 @@ def create_recon_coordinator(
     if model is None:
         import os
         model = ChatOpenAI(
-            model="anthropic/claude-3.5-sonnet",
-            api_key=os.getenv("OPENROUTER_API_KEY"),  # Use api_key (not openai_api_key)
-            base_url="https://openrouter.ai/api/v1",  # Use base_url (not openai_api_base)
+            model="anthropic/claude-sonnet-4",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1",
             temperature=0
         )
 
-    # Create tools with bound context
-    bound_tools = _create_bound_tools(scan_id, team_id, backend)
+    # Get recon tools (they auto-extract config from LangGraph runtime)
+    tools = _get_tools()
 
     system_prompt = """You are a Cybersecurity Reconnaissance Coordinator.
 
@@ -324,6 +279,7 @@ You can spawn specialized sub-agents using the task() tool:
 - "subfinder" - Discovers subdomains via passive reconnaissance
 - "httpx" - Probes subdomains for live HTTP/HTTPS services
 - "nmap" - Scans live hosts for open ports and services
+- "ffuf" - Discovers hidden directories and files via brute-forcing
 
 **Workflow Strategy:**
 1. DISCOVERY: Spawn subfinder sub-agent to discover subdomains
@@ -339,10 +295,10 @@ You can spawn specialized sub-agents using the task() tool:
    - task(agent_type="httpx", description="Probe these targets: {list}")
    - Read results from /recon/httpx/live_hosts.json
 
-4. SERVICE ANALYSIS:
-   - Identify critical services (databases, admin panels, APIs)
-   - Look for technology stacks (versions, frameworks)
-   - Prioritize hosts with interesting services
+4. DIRECTORY DISCOVERY: Spawn ffuf sub-agent on key targets
+   - task(agent_type="ffuf", description="Discover hidden paths on {url}")
+   - Read results from /recon/ffuf/findings.json
+   - Focus on admin panels, APIs, and high-value hosts
 
 5. PORT SCANNING: Spawn nmap sub-agent to scan live hosts
    - task(agent_type="nmap", description="Scan these hosts: {list}")
@@ -357,6 +313,7 @@ You can spawn specialized sub-agents using the task() tool:
 - If database ports exposed: Flag as HIGH RISK
 - If old SSH/HTTP versions: Flag as MEDIUM RISK
 - If admin/staging exposed: Flag as MEDIUM RISK
+- If hidden admin paths found: Flag as HIGH RISK
 
 **Output Format:**
 Write final report as JSON:
@@ -367,10 +324,12 @@ Write final report as JSON:
   "summary": {
     "total_subdomains": N,
     "live_hosts": N,
-    "total_open_ports": N
+    "total_open_ports": N,
+    "hidden_paths_found": N
   },
   "high_risk_findings": [
     "Database port 3306 exposed on db.example.com",
+    "Hidden admin panel at /admin-backup",
     "Old SSH version on admin.example.com"
   ],
   "medium_risk_findings": [...],
@@ -380,28 +339,42 @@ Write final report as JSON:
 Be thorough, intelligent, and security-focused. Make smart decisions about what to scan."""
 
     # Register sub-agents that coordinator can spawn
-    # Use bound tools so each sub-agent has access to the backend
     sub_agents = [
         SubAgent(
             name="subfinder",
             description="Subdomain discovery specialist using Subfinder tool",
             system_prompt="""You are a Subdomain Discovery Specialist.
 Use run_subfinder tool to discover subdomains. Read results from /recon/subfinder/subdomains.json and report findings.""",
-            tools=[bound_tools['subfinder']]
+            tools=[tools['subfinder']]
         ),
         SubAgent(
             name="httpx",
             description="HTTP/HTTPS probing specialist using HTTPx tool",
             system_prompt="""You are an HTTP/HTTPS Probing Specialist.
 Use run_httpx tool to probe targets. Read results from /recon/httpx/live_hosts.json and report findings.""",
-            tools=[bound_tools['httpx']]
+            tools=[tools['httpx']]
         ),
         SubAgent(
             name="nmap",
             description="Network scanning specialist using Nmap tool",
             system_prompt="""You are a Network Scanning Specialist.
 Use run_nmap tool to scan ports. Read results from /recon/nmap/scan_results.json and report findings.""",
-            tools=[bound_tools['nmap']]
+            tools=[tools['nmap']]
+        ),
+        SubAgent(
+            name="ffuf",
+            description="Directory and file brute-forcing specialist using ffuf tool",
+            system_prompt="""You are a Directory Discovery Specialist.
+Use run_ffuf tool to discover hidden directories and files. Read results from /recon/ffuf/findings.json and report findings.
+
+**Best Practices:**
+- Start with "common" wordlist for quick results
+- Use extensions like .php, .bak, .old, .zip for sensitive files
+- Filter out false positives using filter_size if default pages have consistent size
+- Focus on interesting status codes: 200, 301, 302, 401, 403
+
+Report any interesting findings like admin panels, backup files, or sensitive endpoints.""",
+            tools=[tools['ffuf']]
         )
     ]
 

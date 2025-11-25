@@ -1,7 +1,7 @@
 """
 Recon Tools for DeepAgents.
 
-These tools wrap our existing recon agents (Subfinder, HTTPx, Nmap)
+These tools wrap our existing recon agents (Subfinder, HTTPx, Nmap, ffuf)
 so they can be used by DeepAgent sub-agents.
 
 Each tool executes a security tool in E2B sandbox and stores results in Nexus.
@@ -22,6 +22,7 @@ from langchain_core.runnables import RunnableConfig
 from agents.recon.subfinder_agent import SubfinderAgent
 from agents.recon.httpx_agent import HTTPxAgent
 from agents.recon.nmap_agent import NmapAgent, ScanProfile
+from agents.recon.ffuf_agent import FfufAgent, WordlistType
 from agents.backends.nexus_backend import NexusBackend
 from config.nexus_config import get_nexus_fs
 
@@ -281,4 +282,108 @@ def run_nmap(
             "success": False,
             "error": str(e),
             "targets_count": len(targets)
+        })
+
+
+@tool
+def run_ffuf(
+    target_url: str,
+    config: RunnableConfig,  # LangGraph injects this automatically
+    wordlist: str = "common",
+    extensions: Optional[List[str]] = None,
+    threads: int = 40,
+    rate_limit: int = 0,
+    match_codes: Optional[List[int]] = None,
+    filter_size: Optional[int] = None,
+    timeout: int = 600,
+) -> str:
+    """
+    Discover hidden directories and files on a target URL using ffuf.
+
+    This tool runs ffuf (Fuzz Faster U Fool) in an isolated E2B sandbox to
+    brute-force discover hidden paths, files, and endpoints on web applications.
+
+    Results are automatically stored in Nexus workspace at:
+    /{team_id}/{thread_id}/recon/ffuf/findings.json
+
+    Args:
+        target_url: Base URL to scan (e.g., "https://example.com")
+        config: Runtime configuration (auto-injected by LangGraph)
+        wordlist: Wordlist to use - "common", "dirb", "big", "raft-dirs" (default: "common")
+        extensions: File extensions to append (e.g., [".php", ".bak", ".old"])
+        threads: Number of concurrent threads (default: 40)
+        rate_limit: Requests per second, 0 = unlimited (default: 0)
+        match_codes: Only show these status codes (default: 200,204,301,302,307,401,403,405)
+        filter_size: Hide responses of this exact size in bytes (default: None)
+        timeout: Execution timeout in seconds (default: 600)
+
+    Returns:
+        JSON string with discovered paths and metadata
+
+    Example:
+        result = run_ffuf(
+            target_url="https://example.com",
+            wordlist="common",
+            extensions=[".php", ".bak"]
+        )
+        # Returns: '{"count": 15, "findings": [{"path": "/admin", "status_code": 200}, ...]}'
+    """
+    # Extract thread_id and create backend
+    scan_id, team_id, backend = _get_backend_from_config(config)
+
+    try:
+        # Map wordlist string to enum
+        wordlist_map = {
+            "common": WordlistType.COMMON,
+            "dirb": WordlistType.DIRB_COMMON,
+            "big": WordlistType.BIG,
+            "raft-dirs": WordlistType.RAFT_DIRS,
+        }
+        wordlist_type = wordlist_map.get(wordlist.lower(), WordlistType.COMMON)
+
+        # Create and execute ffuf agent
+        agent = FfufAgent(
+            scan_id=scan_id,
+            team_id=team_id,
+            nexus_backend=backend
+        )
+
+        findings = agent.execute(
+            target_url=target_url,
+            wordlist=wordlist_type,
+            extensions=extensions,
+            threads=threads,
+            rate_limit=rate_limit,
+            match_codes=match_codes,
+            filter_size=filter_size,
+            timeout=timeout,
+        )
+
+        agent.cleanup()
+
+        # Group by status code for summary
+        by_status = {}
+        for f in findings:
+            status = str(f.status_code)
+            by_status[status] = by_status.get(status, 0) + 1
+
+        # Return structured result
+        result = {
+            "success": True,
+            "target_url": target_url,
+            "count": len(findings),
+            "by_status_code": by_status,
+            "findings": [f.model_dump() for f in findings],
+            "storage_path": "/recon/ffuf/findings.json"
+        }
+
+        logger.info(f"ffuf found {len(findings)} paths for {target_url}")
+        return json.dumps(result, indent=2)
+
+    except Exception as e:
+        logger.error(f"ffuf tool failed: {e}")
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "target_url": target_url
         })
