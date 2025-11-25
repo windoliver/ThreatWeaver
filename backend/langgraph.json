@@ -1,7 +1,8 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "recon_coordinator": "./langgraph_graph.py:agent"
+    "recon_coordinator": "./langgraph_graph.py:agent",
+    "assessment_coordinator": "./langgraph_assessment.py:agent"
   },
   "env": ".env"
 }

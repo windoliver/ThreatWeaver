@@ -33,8 +33,7 @@ from datetime import datetime
 
 from deepagents import create_deep_agent, SubAgent
 from langchain_openai import ChatOpenAI
-from langchain_core.tools import tool, StructuredTool
-from functools import wraps
+from langchain_core.tools import tool
 
 from src.agents.backends.nexus_backend import NexusBackend
 from src.agents.tools.assessment_tools import run_nuclei, run_sqlmap
@@ -42,44 +41,16 @@ from src.agents.tools.assessment_tools import run_nuclei, run_sqlmap
 logger = logging.getLogger(__name__)
 
 
-def _create_bound_tools(scan_id: str, team_id: str, backend: NexusBackend):
+def _get_tools():
     """
-    Create assessment tools with bound context.
+    Get assessment tools for sub-agents.
 
-    This creates closures around the tools that inject the backend context
-    without relying on thread-local storage (which doesn't work with LangGraph's threading).
+    The tools (run_nuclei, run_sqlmap) automatically extract thread_id from
+    LangGraph's RunnableConfig and create their own backend. No binding needed.
     """
-    from src.agents.context import set_agent_context
-
-    def make_run_nuclei():
-        @wraps(run_nuclei.func)
-        def bound_nuclei(*args, **kwargs):
-            set_agent_context(scan_id, team_id, backend)
-            return run_nuclei.func(*args, **kwargs)
-
-        return StructuredTool.from_function(
-            func=bound_nuclei,
-            name=run_nuclei.name,
-            description=run_nuclei.description,
-            args_schema=run_nuclei.args_schema
-        )
-
-    def make_run_sqlmap():
-        @wraps(run_sqlmap.func)
-        def bound_sqlmap(*args, **kwargs):
-            set_agent_context(scan_id, team_id, backend)
-            return run_sqlmap.func(*args, **kwargs)
-
-        return StructuredTool.from_function(
-            func=bound_sqlmap,
-            name=run_sqlmap.name,
-            description=run_sqlmap.description,
-            args_schema=run_sqlmap.args_schema
-        )
-
     return {
-        'nuclei': make_run_nuclei(),
-        'sqlmap': make_run_sqlmap()
+        'nuclei': run_nuclei,
+        'sqlmap': run_sqlmap
     }
 
 
@@ -139,24 +110,14 @@ def request_approval(
     }, indent=2)
 
 
-def create_nuclei_subagent(
-    scan_id: str,
-    team_id: str,
-    backend: NexusBackend,
-    bound_tools: Dict[str, Any],
-    model: Optional[Any] = None
-) -> SubAgent:
+def create_nuclei_subagent(tools: Dict[str, Any]) -> SubAgent:
     """
     Create Nuclei sub-agent specification.
 
     This sub-agent specializes in vulnerability scanning using Nuclei templates.
 
     Args:
-        scan_id: Scan identifier
-        team_id: Team identifier
-        backend: NexusBackend instance
-        bound_tools: Dictionary of bound tools
-        model: LLM model (optional)
+        tools: Dictionary of assessment tools (nuclei, sqlmap)
 
     Returns:
         SubAgent configuration for Nuclei scanning
@@ -191,17 +152,11 @@ Your mission: Scan targets for known vulnerabilities using Nuclei templates.
 - Other notable findings
 
 Be thorough and security-focused. Highlight anything requiring immediate attention.""",
-        tools=[bound_tools['nuclei']]
+        tools=[tools['nuclei']]
     )
 
 
-def create_sqlmap_subagent(
-    scan_id: str,
-    team_id: str,
-    backend: NexusBackend,
-    bound_tools: Dict[str, Any],
-    model: Optional[Any] = None
-) -> SubAgent:
+def create_sqlmap_subagent(tools: Dict[str, Any]) -> SubAgent:
     """
     Create SQLMap sub-agent specification.
 
@@ -209,11 +164,7 @@ def create_sqlmap_subagent(
     It should only be spawned after HITL approval.
 
     Args:
-        scan_id: Scan identifier
-        team_id: Team identifier
-        backend: NexusBackend instance
-        bound_tools: Dictionary of bound tools
-        model: LLM model (optional)
+        tools: Dictionary of assessment tools (nuclei, sqlmap)
 
     Returns:
         SubAgent configuration for SQL injection testing
@@ -250,7 +201,7 @@ Your mission: Test confirmed SQL injection vulnerabilities for exploitability.
 - Risk assessment
 
 Be methodical and cautious. Document everything.""",
-        tools=[bound_tools['sqlmap']]
+        tools=[tools['sqlmap']]
     )
 
 
@@ -295,14 +246,14 @@ def create_assessment_coordinator(
     if model is None:
         import os
         model = ChatOpenAI(
-            model="anthropic/claude-sonnet-4-20250514",
+            model="anthropic/claude-sonnet-4",
             api_key=os.getenv("OPENROUTER_API_KEY"),
             base_url="https://openrouter.ai/api/v1",
             temperature=0
         )
 
-    # Create tools with bound context
-    bound_tools = _create_bound_tools(scan_id, team_id, backend)
+    # Get assessment tools (they auto-extract config from LangGraph runtime)
+    tools = _get_tools()
 
     system_prompt = f"""You are a Security Assessment Coordinator.
 
@@ -403,8 +354,8 @@ Be thorough, methodical, and security-focused. Your assessment helps protect sys
 
     # Create sub-agents
     sub_agents = [
-        create_nuclei_subagent(scan_id, team_id, backend, bound_tools),
-        create_sqlmap_subagent(scan_id, team_id, backend, bound_tools)
+        create_nuclei_subagent(tools),
+        create_sqlmap_subagent(tools)
     ]
 
     # Coordinator has access to request_approval tool directly

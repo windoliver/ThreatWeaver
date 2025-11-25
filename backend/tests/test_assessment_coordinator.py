@@ -16,7 +16,7 @@ from src.agents.assessment_coordinator import (
     create_sqlmap_subagent,
     create_quick_assessment,
     request_approval,
-    _create_bound_tools,
+    _get_tools,
 )
 
 
@@ -83,46 +83,33 @@ class TestRequestApproval:
         assert "demonstration" in data["approval"]["note"].lower()
 
 
-class TestBoundTools:
-    """Test tool binding for context injection."""
+class TestGetTools:
+    """Test tool retrieval."""
 
-    def test_create_bound_tools(self, mock_backend):
-        """Test that bound tools are created correctly."""
-        bound_tools = _create_bound_tools(
-            scan_id="test-scan",
-            team_id="test-team",
-            backend=mock_backend
-        )
+    def test_get_tools_returns_both_tools(self):
+        """Test that _get_tools returns both tools."""
+        tools = _get_tools()
 
-        assert "nuclei" in bound_tools
-        assert "sqlmap" in bound_tools
-        assert bound_tools["nuclei"].name == "run_nuclei"
-        assert bound_tools["sqlmap"].name == "run_sqlmap"
+        assert "nuclei" in tools
+        assert "sqlmap" in tools
+        assert tools["nuclei"].name == "run_nuclei"
+        assert tools["sqlmap"].name == "run_sqlmap"
 
-    def test_bound_tools_have_descriptions(self, mock_backend):
-        """Test that bound tools retain descriptions."""
-        bound_tools = _create_bound_tools(
-            scan_id="test-scan",
-            team_id="test-team",
-            backend=mock_backend
-        )
+    def test_tools_have_descriptions(self):
+        """Test that tools have descriptions."""
+        tools = _get_tools()
 
-        assert "Nuclei" in bound_tools["nuclei"].description or "vulnerabilit" in bound_tools["nuclei"].description.lower()
-        assert "SQL" in bound_tools["sqlmap"].description or "injection" in bound_tools["sqlmap"].description.lower()
+        assert "Nuclei" in tools["nuclei"].description or "vulnerabilit" in tools["nuclei"].description.lower()
+        assert "SQL" in tools["sqlmap"].description or "injection" in tools["sqlmap"].description.lower()
 
 
 class TestSubAgentCreation:
     """Test sub-agent creation."""
 
-    def test_create_nuclei_subagent(self, mock_backend):
+    def test_create_nuclei_subagent(self):
         """Test Nuclei sub-agent creation returns SubAgent with expected attributes."""
-        bound_tools = _create_bound_tools("scan", "team", mock_backend)
-        subagent = create_nuclei_subagent(
-            scan_id="test-scan",
-            team_id="test-team",
-            backend=mock_backend,
-            bound_tools=bound_tools
-        )
+        tools = _get_tools()
+        subagent = create_nuclei_subagent(tools)
 
         # SubAgent from deepagents library - check it has the expected structure
         # Different versions may use dict or NamedTuple
@@ -134,15 +121,10 @@ class TestSubAgentCreation:
             # Just verify we got something back
             assert subagent is not None
 
-    def test_create_sqlmap_subagent(self, mock_backend):
+    def test_create_sqlmap_subagent(self):
         """Test SQLMap sub-agent creation returns SubAgent."""
-        bound_tools = _create_bound_tools("scan", "team", mock_backend)
-        subagent = create_sqlmap_subagent(
-            scan_id="test-scan",
-            team_id="test-team",
-            backend=mock_backend,
-            bound_tools=bound_tools
-        )
+        tools = _get_tools()
+        subagent = create_sqlmap_subagent(tools)
 
         # Check structure
         if hasattr(subagent, 'name'):
@@ -152,30 +134,20 @@ class TestSubAgentCreation:
         else:
             assert subagent is not None
 
-    def test_nuclei_subagent_has_system_prompt(self, mock_backend):
+    def test_nuclei_subagent_has_system_prompt(self):
         """Test Nuclei sub-agent has a system prompt."""
-        bound_tools = _create_bound_tools("scan", "team", mock_backend)
-        subagent = create_nuclei_subagent(
-            scan_id="test-scan",
-            team_id="test-team",
-            backend=mock_backend,
-            bound_tools=bound_tools
-        )
+        tools = _get_tools()
+        subagent = create_nuclei_subagent(tools)
 
         # Get system_prompt
         prompt = getattr(subagent, 'system_prompt', None) or subagent.get('system_prompt', '')
         assert prompt  # Non-empty
         assert "nuclei" in prompt.lower() or "findings" in prompt.lower()
 
-    def test_sqlmap_subagent_has_safety_rules(self, mock_backend):
+    def test_sqlmap_subagent_has_safety_rules(self):
         """Test SQLMap sub-agent has safety rules in prompt."""
-        bound_tools = _create_bound_tools("scan", "team", mock_backend)
-        subagent = create_sqlmap_subagent(
-            scan_id="test-scan",
-            team_id="test-team",
-            backend=mock_backend,
-            bound_tools=bound_tools
-        )
+        tools = _get_tools()
+        subagent = create_sqlmap_subagent(tools)
 
         # Get system_prompt
         prompt = getattr(subagent, 'system_prompt', None) or subagent.get('system_prompt', '')
