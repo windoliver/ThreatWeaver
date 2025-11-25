@@ -36,7 +36,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 
 from src.agents.backends.nexus_backend import NexusBackend
-from src.agents.tools.assessment_tools import run_nuclei, run_sqlmap
+from src.agents.tools.assessment_tools import run_nuclei, run_sqlmap, run_xsstrike
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +45,13 @@ def _get_tools():
     """
     Get assessment tools for sub-agents.
 
-    The tools (run_nuclei, run_sqlmap) automatically extract thread_id from
+    The tools (run_nuclei, run_sqlmap, run_xsstrike) automatically extract thread_id from
     LangGraph's RunnableConfig and create their own backend. No binding needed.
     """
     return {
         'nuclei': run_nuclei,
-        'sqlmap': run_sqlmap
+        'sqlmap': run_sqlmap,
+        'xsstrike': run_xsstrike
     }
 
 
@@ -164,7 +165,7 @@ def create_sqlmap_subagent(tools: Dict[str, Any]) -> SubAgent:
     It should only be spawned after HITL approval.
 
     Args:
-        tools: Dictionary of assessment tools (nuclei, sqlmap)
+        tools: Dictionary of assessment tools (nuclei, sqlmap, xsstrike)
 
     Returns:
         SubAgent configuration for SQL injection testing
@@ -202,6 +203,56 @@ Your mission: Test confirmed SQL injection vulnerabilities for exploitability.
 
 Be methodical and cautious. Document everything.""",
         tools=[tools['sqlmap']]
+    )
+
+
+def create_xsstrike_subagent(tools: Dict[str, Any]) -> SubAgent:
+    """
+    Create XSStrike sub-agent specification.
+
+    This sub-agent specializes in XSS vulnerability detection using XSStrike.
+
+    Args:
+        tools: Dictionary of assessment tools (nuclei, sqlmap, xsstrike)
+
+    Returns:
+        SubAgent configuration for XSS testing
+    """
+    return SubAgent(
+        name="xsstrike",
+        description="XSS vulnerability detection specialist using XSStrike",
+        system_prompt="""You are an XSS (Cross-Site Scripting) Detection Specialist.
+
+Your mission: Test web applications for XSS vulnerabilities using intelligent payload generation.
+
+**Available Tools:**
+- run_xsstrike: Tests URLs for XSS vulnerabilities using XSStrike
+
+**Workflow:**
+1. Use run_xsstrike with URLs that have user input parameters
+2. Focus on search forms, comment fields, user profiles
+3. Analyze findings for reflected, DOM-based, or blind XSS
+4. Report vulnerable parameters and successful payloads
+
+**Target Selection:**
+- URLs with query parameters (?q=, ?search=, ?name=)
+- Forms with text inputs
+- URLs from directory brute-forcing (e.g., /admin, /search)
+
+**Output Format:**
+- XSS found: Yes/No
+- Vulnerable parameters: list
+- XSS type: reflected, DOM, stored, blind
+- Successful payloads
+- WAF bypass techniques used (if any)
+
+**Safety:**
+- Only test authorized targets
+- Don't attempt stored XSS exploitation
+- Report findings without triggering payloads
+
+Be thorough in testing all input vectors.""",
+        tools=[tools['xsstrike']]
     )
 
 
@@ -268,6 +319,7 @@ Your mission: Orchestrate a comprehensive security assessment for target applica
 You can spawn specialized sub-agents using the task() tool:
 - "nuclei" - Vulnerability scanning using Nuclei templates (CVEs, misconfigs, etc.)
 - "sqlmap" - SQL injection testing (requires approval first)
+- "xsstrike" - XSS vulnerability detection using XSStrike
 
 **Available Tools:**
 - request_approval: Request HITL approval for sensitive operations
@@ -286,23 +338,29 @@ You can spawn specialized sub-agents using the task() tool:
      * Template IDs containing "sqli" or "sql-injection"
      * CVEs related to SQL injection
      * Error-based injection patterns
+   - Look for XSS indicators in forms and query parameters
    - Document all findings with context
 
-3. CONDITIONAL ESCALATION (if SQLi detected):
+3. XSS TESTING (if forms/parameters found):
+   - task(agent_type="xsstrike", description="Test {{url}} for XSS vulnerabilities")
+   - Read results from /assessment/xsstrike/findings.json
+   - Document vulnerable parameters and payload types
+
+4. CONDITIONAL ESCALATION (if SQLi detected):
    a. Request HITL approval FIRST:
       - request_approval(action="SQL injection deep testing", reason="...", targets=[...])
    b. Only after approval, spawn SQLMap:
       - task(agent_type="sqlmap", description="Test {{url}} for SQL injection")
    c. Read SQLMap results from /assessment/sqlmap/findings.json
 
-4. RISK ASSESSMENT:
+5. RISK ASSESSMENT:
    Priority order: RCE > SQLi > Auth Bypass > XSS > Info Disclosure
    - Critical: RCE, confirmed SQLi with data access, auth bypass
-   - High: Unconfirmed SQLi, sensitive data exposure
-   - Medium: XSS, CSRF, information disclosure
+   - High: Unconfirmed SQLi, sensitive data exposure, stored XSS
+   - Medium: Reflected XSS, CSRF, information disclosure
    - Low: Version disclosure, minor misconfigurations
 
-5. FINAL REPORT:
+6. FINAL REPORT:
    Write comprehensive report to /assessment/final_report.json:
    {{
      "scan_id": "{scan_id}",
@@ -355,7 +413,8 @@ Be thorough, methodical, and security-focused. Your assessment helps protect sys
     # Create sub-agents
     sub_agents = [
         create_nuclei_subagent(tools),
-        create_sqlmap_subagent(tools)
+        create_sqlmap_subagent(tools),
+        create_xsstrike_subagent(tools)
     ]
 
     # Coordinator has access to request_approval tool directly

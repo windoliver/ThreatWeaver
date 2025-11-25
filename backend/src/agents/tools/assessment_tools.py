@@ -21,6 +21,7 @@ from langchain_core.runnables import RunnableConfig
 
 from src.agents.assessment.nuclei_agent import NucleiAgent, SeverityLevel
 from src.agents.assessment.sqlmap_agent import SQLMapAgent
+from src.agents.assessment.xsstrike_agent import XSStrikeAgent
 from src.agents.backends.nexus_backend import NexusBackend
 from src.config.nexus_config import get_nexus_fs
 
@@ -256,6 +257,105 @@ def run_sqlmap(
 
     except Exception as e:
         logger.error(f"SQLMap tool failed: {e}")
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "target_url": target_url,
+            "vulnerable": False
+        })
+
+
+@tool
+def run_xsstrike(
+    target_url: str,
+    config: RunnableConfig,  # LangGraph injects this automatically
+    data: Optional[str] = None,
+    crawl: bool = False,
+    skip_dom: bool = False,
+    timeout: int = 600,
+) -> str:
+    """
+    Test a URL for Cross-Site Scripting (XSS) vulnerabilities using XSStrike.
+
+    This tool runs XSStrike in an isolated E2B sandbox to detect XSS vulnerabilities
+    using intelligent payload generation and WAF bypass techniques.
+
+    XSStrike can detect:
+    - Reflected XSS
+    - DOM-based XSS
+    - Blind XSS (with external service)
+
+    Results are automatically stored in Nexus workspace at:
+    /{team_id}/{thread_id}/assessment/xsstrike/findings.json
+
+    Args:
+        target_url: URL with parameters to test (e.g., "https://example.com/search?q=test")
+        config: Runtime configuration (auto-injected by LangGraph)
+        data: POST data string (e.g., "name=test&comment=hello")
+        crawl: Enable crawling to find more injection points (default: False)
+        skip_dom: Skip DOM-based XSS testing for speed (default: False)
+        timeout: Execution timeout in seconds (default: 600)
+
+    Returns:
+        JSON string with XSS findings and metadata
+
+    Example:
+        result = run_xsstrike(
+            target_url="https://example.com/search?q=test"
+        )
+        # Returns: '{"vulnerable_count": 1, "findings": [{"parameter": "q", "xss_type": "reflected"}]}'
+    """
+    # Extract thread_id and create backend
+    scan_id, team_id, backend = _get_backend_from_config(config)
+
+    try:
+        # Create and execute XSStrike agent
+        agent = XSStrikeAgent(
+            scan_id=scan_id,
+            team_id=team_id,
+            nexus_backend=backend
+        )
+
+        findings = agent.execute(
+            target_url=target_url,
+            data=data,
+            crawl=crawl,
+            skip_dom=skip_dom,
+            timeout=timeout
+        )
+
+        agent.cleanup()
+
+        # Summarize findings
+        vuln_findings = [f for f in findings if f.vulnerable]
+        xss_types = {}
+        for f in vuln_findings:
+            if f.xss_type:
+                xss_types[f.xss_type] = xss_types.get(f.xss_type, 0) + 1
+
+        # Return structured result
+        result = {
+            "success": True,
+            "target_url": target_url,
+            "vulnerable": len(vuln_findings) > 0,
+            "vulnerable_count": len(vuln_findings),
+            "xss_types": xss_types,
+            "findings": [f.model_dump() for f in findings],
+            "storage_path": "/assessment/xsstrike/findings.json"
+        }
+
+        if vuln_findings:
+            logger.info(
+                f"XSStrike found {len(vuln_findings)} XSS vulnerabilities "
+                f"({', '.join(f'{k}: {v}' for k, v in xss_types.items())})"
+            )
+        else:
+            logger.info(f"XSStrike found no XSS vulnerabilities in {target_url}")
+
+        return json.dumps(result, indent=2)
+
+    except Exception as e:
+        logger.error(f"XSStrike tool failed: {e}")
         return json.dumps({
             "success": False,
             "error": str(e),
